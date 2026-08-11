@@ -7,6 +7,7 @@ import {
   getProduct,
   type ColorKey,
   type Side,
+  type Product,
 } from "@/lib/catalog";
 import { SizeGuide } from "@/components/SizeGuide";
 import { addToCart } from "@/lib/store";
@@ -37,7 +38,7 @@ export const Route = createFileRoute("/product/$slug")({
 });
 
 function ProductPage() {
-  const { product } = Route.useLoaderData();
+  const { product } = Route.useLoaderData() as { product: Product };
   const [color, setColor] = useState<ColorKey>(product.colors[0] ?? "black");
   const [size, setSize] = useState<string>("L");
   const [side, setSide] = useState<Side>("front");
