@@ -40,6 +40,7 @@ export function DesignPreview({
           top: `${area.y}%`,
           width: `${area.w}%`,
           height: `${area.h}%`,
+          containerType: "inline-size",
           outline: showArea ? "1px dashed rgba(160,160,160,.8)" : undefined,
         }}
       >
