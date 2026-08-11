@@ -39,24 +39,24 @@ function Index() {
           <p className="mt-3 max-w-md text-sm opacity-80">
             Heavyweight blanks. Your image, your text — front and back.
           </p>
-          <div className="mt-7 flex w-full max-w-md flex-col gap-2 sm:flex-row sm:justify-center">
+          <div className="mt-7 flex w-full max-w-2xl flex-col gap-2 sm:flex-row sm:justify-center">
             <Link
               to="/shop"
               search={{ type: "tee" }}
-              className="flex min-h-12 items-center justify-center bg-cream px-6 text-xs tracking-[0.2em] text-ink uppercase"
+              className="flex min-h-12 items-center justify-center whitespace-nowrap bg-cream px-6 text-xs tracking-[0.2em] text-ink uppercase"
             >
               Shop shirts
             </Link>
             <Link
               to="/shop"
               search={{ type: "hoodie" }}
-              className="flex min-h-12 items-center justify-center border border-cream px-6 text-xs tracking-[0.2em] uppercase"
+              className="flex min-h-12 items-center justify-center whitespace-nowrap border border-cream px-6 text-xs tracking-[0.2em] uppercase"
             >
               Shop hoodies
             </Link>
             <Link
               to="/customize"
-              className="flex min-h-12 items-center justify-center border border-cream/40 px-6 text-xs tracking-[0.2em] uppercase"
+              className="flex min-h-12 items-center justify-center whitespace-nowrap border border-cream/40 px-6 text-xs tracking-[0.2em] uppercase"
             >
               Create design
             </Link>
