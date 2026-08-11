@@ -6,7 +6,7 @@ const title = "Shop Tees & Hoodies — JANNAR";
 const description =
   "Browse JANNAR heavyweight tees and oversized hoodies in black and cream, ready for your custom front and back print.";
 
-type Search = { type?: "tee" | "hoodie" };
+type Search = { type?: "tee" | "hoodie" | undefined };
 
 export const Route = createFileRoute("/shop")({
   validateSearch: (s: Record<string, unknown>): Search => ({
