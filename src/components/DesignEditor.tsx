@@ -57,7 +57,9 @@ export function DesignEditor({ garment, color, side, design, onChange }: Props) 
     setSelected(el.id);
     const p = pct(e.clientX, e.clientY);
     if (pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
+      const pts = [...pointers.current.values()];
+      const a = pts[0]!;
+      const b = pts[1]!;
       pinch.current = { id: el.id, dist: Math.hypot(a.x - b.x, a.y - b.y), w: el.w };
       drag.current = null;
     } else {
@@ -69,7 +71,9 @@ export function DesignEditor({ garment, color, side, design, onChange }: Props) 
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pinch.current && pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
+      const pts = [...pointers.current.values()];
+      const a = pts[0]!;
+      const b = pts[1]!;
       const d = Math.hypot(a.x - b.x, a.y - b.y);
       update(pinch.current.id, {
         w: clamp((pinch.current.w * d) / pinch.current.dist, 8, 100),
@@ -186,7 +190,7 @@ export function DesignEditor({ garment, color, side, design, onChange }: Props) 
               y: 50,
               w: 70,
               rotation: 0,
-              font: FONTS[0].value,
+              font: FONTS[0]!.value,
               color: "#efe6cf",
               align: "center",
             })
@@ -237,7 +241,7 @@ export function DesignEditor({ garment, color, side, design, onChange }: Props) 
                 <select
                   value={active.align}
                   onChange={(e) =>
-                    update(active.id, { align: e.target.value as DesignElement["align"] })
+                    update(active.id, { align: e.target.value as "left" | "center" | "right" })
                   }
                   className="min-h-11 border border-border bg-background px-2 text-sm"
                 >
