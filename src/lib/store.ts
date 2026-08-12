@@ -1,10 +1,9 @@
 import { useSyncExternalStore } from "react";
 import type { CartItem } from "./design";
-import type { RegionCode } from "./catalog";
 
-type State = { cart: CartItem[]; region: RegionCode };
+type State = { cart: CartItem[]; region: string };
 
-const KEY = "jannar-state-v1";
+const KEY = "jannar-state-v2";
 let state: State = { cart: [], region: "PS" };
 let loaded = false;
 const listeners = new Set<() => void>();
@@ -55,4 +54,4 @@ export const setQty = (id: string, qty: number) =>
     cart: state.cart.map((i) => (i.id === id ? { ...i, qty: Math.max(1, qty) } : i)),
   });
 export const clearCart = () => commit({ ...state, cart: [] });
-export const setRegion = (region: RegionCode) => commit({ ...state, region });
+export const setRegion = (region: string) => commit({ ...state, region });
