@@ -35,15 +35,6 @@ export function Flag({ code, className = "h-4 w-6" }: Props) {
           <circle cx="15" cy="10" r="2.2" fill="#c09300" />
         </svg>
       );
-    case "AE":
-      return (
-        <svg viewBox="0 0 30 20" className={common} aria-hidden="true">
-          <rect width="30" height="6.67" fill="#00732f" />
-          <rect y="6.67" width="30" height="6.66" fill="#fff" />
-          <rect y="13.33" width="30" height="6.67" fill="#000" />
-          <rect width="8" height="20" fill="#ce1126" />
-        </svg>
-      );
     default:
       return <span className={common} />;
   }

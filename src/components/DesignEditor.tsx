@@ -1,36 +1,115 @@
-import { useRef, useState } from "react";
-import { Trash2, Image as ImageIcon, Type, RotateCw } from "lucide-react";
-import { MOCKUPS, PRINT_AREA, type ColorKey, type Garment, type Side } from "@/lib/catalog";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Trash2, Image as ImageIcon, Type } from "lucide-react";
 import { FONTS, type Design, type DesignElement } from "@/lib/design";
-import { ElementView } from "./DesignPreview";
+import type { Rect, Side } from "@/lib/types";
+import { elementStyle } from "./DesignPreview";
+import { useI18n } from "@/lib/i18n";
 
 type Props = {
-  garment: Garment;
-  color: ColorKey;
+  image: string;
+  area: Rect;
   side: Side;
   design: Design;
   onChange: (design: Design) => void;
 };
 
-const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const uid = () => Math.random().toString(36).slice(2, 9);
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-export function DesignEditor({ garment, color, side, design, onChange }: Props) {
+/** Rotated bounding box of an element, in % of the print area. */
+function aabb(w: number, h: number, rotation: number) {
+  const rad = (rotation * Math.PI) / 180;
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
+  return { W: w * c + h * s, H: w * s + h * c };
+}
+
+/** Returns a position/size guaranteed to sit fully inside the printable area. */
+function fit(el: DesignElement, size: { w: number; h: number }) {
+  if (!size.w || !size.h) return el;
+  let scale = 1;
+  const { W, H } = aabb(size.w, size.h, el.rotation);
+  if (W > 100 || H > 100) scale = Math.min(100 / W, 100 / H);
+  const box = aabb(size.w * scale, size.h * scale, el.rotation);
+  return {
+    ...el,
+    w: el.w * scale,
+    x: clamp(el.x, box.W / 2, 100 - box.W / 2),
+    y: clamp(el.y, box.H / 2, 100 - box.H / 2),
+  };
+}
+
+export function DesignEditor({ image, area, side, design, onChange }: Props) {
+  const { t } = useI18n();
   const [selected, setSelected] = useState<string | null>(null);
   const areaRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const drag = useRef<{ id: string; dx: number; dy: number } | null>(null);
+  const nodes = useRef(new Map<string, HTMLElement>());
+  const sizes = useRef(new Map<string, { w: number; h: number }>());
+  const drag = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(
+    null,
+  );
   const pinch = useRef<{ id: string; dist: number; w: number } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
 
   const elements = design[side];
-  const area = PRINT_AREA[garment];
   const active = elements.find((e) => e.id === selected) ?? null;
+
+  const measure = useCallback(() => {
+    const box = areaRef.current?.getBoundingClientRect();
+    if (!box || !box.width) return false;
+    let changed = false;
+    for (const el of elements) {
+      const node = nodes.current.get(el.id);
+      if (!node) continue;
+      const next = {
+        w: (node.offsetWidth / box.width) * 100,
+        h: (node.offsetHeight / box.height) * 100,
+      };
+      const prev = sizes.current.get(el.id);
+      if (!prev || Math.abs(prev.w - next.w) > 0.05 || Math.abs(prev.h - next.h) > 0.05) {
+        sizes.current.set(el.id, next);
+        changed = true;
+      }
+    }
+    return changed;
+  }, [elements]);
+
+  /** After any render, re-measure and push elements back inside the printable box. */
+  useLayoutEffect(() => {
+    measure();
+    let dirty = false;
+    const next = elements.map((el) => {
+      const size = sizes.current.get(el.id);
+      if (!size) return el;
+      const fixed = fit(el, size);
+      if (
+        Math.abs(fixed.x - el.x) > 0.05 ||
+        Math.abs(fixed.y - el.y) > 0.05 ||
+        Math.abs(fixed.w - el.w) > 0.05
+      ) {
+        dirty = true;
+        return fixed;
+      }
+      return el;
+    });
+    if (dirty) onChange({ ...design, [side]: next });
+  });
+
+  useEffect(() => {
+    const onResize = () => measure();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [measure]);
 
   const update = (id: string, patch: Partial<DesignElement>) =>
     onChange({
       ...design,
-      [side]: elements.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      [side]: elements.map((e) => {
+        if (e.id !== id) return e;
+        const merged = { ...e, ...patch };
+        return fit(merged, sizes.current.get(id) ?? { w: 0, h: 0 });
+      }),
     });
 
   const add = (el: DesignElement) => {
@@ -39,277 +118,274 @@ export function DesignEditor({ garment, color, side, design, onChange }: Props) 
   };
 
   const remove = (id: string) => {
+    nodes.current.delete(id);
+    sizes.current.delete(id);
     onChange({ ...design, [side]: elements.filter((e) => e.id !== id) });
     setSelected(null);
   };
 
-  const pct = (clientX: number, clientY: number) => {
-    const box = areaRef.current!.getBoundingClientRect();
-    return {
-      x: ((clientX - box.left) / box.width) * 100,
-      y: ((clientY - box.top) / box.height) * 100,
-    };
-  };
-
   const onPointerDown = (e: React.PointerEvent, el: DesignElement) => {
-    (e.target as Element).setPointerCapture(e.pointerId);
+    (e.currentTarget as Element).setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     setSelected(el.id);
-    const p = pct(e.clientX, e.clientY);
     if (pointers.current.size === 2) {
-      const pts = [...pointers.current.values()];
-      const a = pts[0]!;
-      const b = pts[1]!;
+      const [a, b] = [...pointers.current.values()];
+      if (!a || !b) return;
       pinch.current = { id: el.id, dist: Math.hypot(a.x - b.x, a.y - b.y), w: el.w };
       drag.current = null;
-    } else {
-      drag.current = { id: el.id, dx: p.x - el.x, dy: p.y - el.y };
+      return;
     }
+    drag.current = { id: el.id, startX: e.clientX, startY: e.clientY, ox: el.x, oy: el.y };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!pointers.current.has(e.pointerId)) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const box = areaRef.current?.getBoundingClientRect();
+    if (!box) return;
+
     if (pinch.current && pointers.current.size === 2) {
-      const pts = [...pointers.current.values()];
-      const a = pts[0]!;
-      const b = pts[1]!;
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      update(pinch.current.id, {
-        w: clamp((pinch.current.w * d) / pinch.current.dist, 8, 100),
-      });
+      const [a, b] = [...pointers.current.values()];
+      if (!a || !b) return;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const ratio = dist / (pinch.current.dist || 1);
+      update(pinch.current.id, { w: clamp(pinch.current.w * ratio, 3, 100) });
       return;
     }
-    if (!drag.current) return;
-    const p = pct(e.clientX, e.clientY);
-    update(drag.current.id, {
-      x: clamp(p.x - drag.current.dx, 4, 96),
-      y: clamp(p.y - drag.current.dy, 4, 96),
-    });
+
+    const d = drag.current;
+    if (!d) return;
+    const dx = ((e.clientX - d.startX) / box.width) * 100;
+    const dy = ((e.clientY - d.startY) / box.height) * 100;
+    update(d.id, { x: d.ox + dx, y: d.oy + dy });
   };
 
-  const onPointerUp = (e: React.PointerEvent) => {
+  const endPointer = (e: React.PointerEvent) => {
     pointers.current.delete(e.pointerId);
     if (pointers.current.size < 2) pinch.current = null;
     if (pointers.current.size === 0) drag.current = null;
   };
 
-  const onFile = (file?: File) => {
-    if (!file) return;
+  const onFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () =>
       add({
         id: uid(),
         kind: "image",
-        src: String(reader.result),
         x: 50,
         y: 50,
         w: 60,
         rotation: 0,
+        src: String(reader.result),
       });
     reader.readAsDataURL(file);
   };
 
   return (
-    <div>
-      <div className="relative mx-auto aspect-square w-full max-w-md overflow-hidden bg-secondary select-none">
-        <img
-          src={MOCKUPS[garment][color][side]}
-          alt={`${garment} ${side}`}
-          width={1024}
-          height={1024}
-          decoding="async"
-          className="h-full w-full object-cover"
-        />
+    <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="relative aspect-square w-full touch-none overflow-hidden bg-secondary select-none">
+        {image ? (
+          <img
+            src={image}
+            alt=""
+            width={1024}
+            height={1024}
+            className="pointer-events-none h-full w-full object-cover"
+          />
+        ) : null}
         <div
           ref={areaRef}
-          className="absolute touch-none"
+          className="absolute overflow-hidden"
           style={{
             left: `${area.x}%`,
             top: `${area.y}%`,
             width: `${area.w}%`,
             height: `${area.h}%`,
             containerType: "inline-size",
-            outline: "1px dashed rgba(150,150,150,.9)",
+            outline: "1px dashed rgba(210,210,210,.95)",
           }}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
+          onPointerDown={() => setSelected(null)}
         >
-          {elements.map((el) => (
-            <div
-              key={el.id}
-              onPointerDown={(e) => onPointerDown(e, el)}
-              className="absolute cursor-grab touch-none"
-              style={{
-                left: `${el.x}%`,
-                top: `${el.y}%`,
-                width: `${el.w}%`,
-                transform: `translate(-50%,-50%) rotate(${el.rotation}deg)`,
-                outline: selected === el.id ? "1px solid #4ea3ff" : undefined,
-                outlineOffset: 2,
-                padding: 2,
-              }}
-            >
-              <div className="relative w-full">
-                <ElementView
-                  el={{ ...el, x: 50, y: 50, w: 100, rotation: 0 }}
+          {elements.map((el) => {
+            const style = {
+              ...elementStyle(el),
+              cursor: "move",
+              outline: selected === el.id ? "1.5px solid #4f7cff" : undefined,
+            };
+            const setNode = (node: HTMLElement | null) => {
+              if (node) nodes.current.set(el.id, node);
+            };
+            const down = (e: React.PointerEvent) => {
+              e.stopPropagation();
+              onPointerDown(e, el);
+            };
+            if (el.kind === "image") {
+              return (
+                <img
+                  key={el.id}
+                  ref={setNode}
+                  src={el.src}
+                  alt=""
+                  draggable={false}
+                  style={style}
+                  onPointerDown={down}
+                  onPointerMove={onPointerMove}
+                  onPointerUp={endPointer}
+                  onPointerCancel={endPointer}
                 />
+              );
+            }
+            return (
+              <div
+                key={el.id}
+                ref={setNode}
+                style={style}
+                onPointerDown={down}
+                onPointerMove={onPointerMove}
+                onPointerUp={endPointer}
+                onPointerCancel={endPointer}
+              >
+                {el.text}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-        <span className="absolute bottom-2 left-1/2 -translate-x-1/2 text-[10px] tracking-[0.2em] text-muted-foreground uppercase">
-          Printable area
-        </span>
       </div>
 
-      <div className="mt-4 flex gap-2">
+      <div className="space-y-4">
+        <p className="text-xs text-muted-foreground">{t("editorHint")}</p>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 border border-ink text-xs tracking-[0.15em] uppercase"
+          >
+            <ImageIcon className="h-4 w-4" /> {t("addImage")}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              add({
+                id: uid(),
+                kind: "text",
+                x: 50,
+                y: 50,
+                w: 16,
+                rotation: 0,
+                text: "JANNAR",
+                font: FONTS[0]!.value,
+                color: "#ffffff",
+                align: "center",
+              })
+            }
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 border border-ink text-xs tracking-[0.15em] uppercase"
+          >
+            <Type className="h-4 w-4" /> {t("addText")}
+          </button>
+        </div>
         <input
           ref={fileRef}
           type="file"
           accept="image/*"
-          className="hidden"
-          onChange={(e) => onFile(e.target.files?.[0])}
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+            e.target.value = "";
+          }}
         />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="flex min-h-12 flex-1 items-center justify-center gap-2 border border-border bg-card text-sm tracking-[0.15em] uppercase active:bg-secondary"
-        >
-          <ImageIcon size={16} /> Add image
-        </button>
-        <button
-          type="button"
-          onClick={() =>
-            add({
-              id: uid(),
-              kind: "text",
-              text: "JANNAR",
-              x: 50,
-              y: 50,
-              w: 70,
-              rotation: 0,
-              font: FONTS[0]!.value,
-              color: "#efe6cf",
-              align: "center",
-            })
-          }
-          className="flex min-h-12 flex-1 items-center justify-center gap-2 border border-border bg-card text-sm tracking-[0.15em] uppercase active:bg-secondary"
-        >
-          <Type size={16} /> Add text
-        </button>
-      </div>
 
-      {active && (
-        <div className="mt-4 space-y-4 border border-border bg-card p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs tracking-[0.2em] uppercase">
-              {active.kind === "text" ? "Text" : "Image"} settings
-            </span>
-            <button
-              type="button"
-              onClick={() => remove(active.id)}
-              aria-label="Delete element"
-              className="flex min-h-11 items-center gap-1 px-2 text-sm text-destructive"
-            >
-              <Trash2 size={16} /> Delete
-            </button>
-          </div>
+        {active ? (
+          <div className="space-y-3 border border-border p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs tracking-[0.15em] uppercase">
+                {active.kind === "text" ? t("textSettings") : t("imageSettings")}
+              </span>
+              <button
+                type="button"
+                onClick={() => remove(active.id)}
+                aria-label={t("delete")}
+                className="p-2"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
 
-          {active.kind === "text" && (
-            <>
-              <textarea
-                value={active.text}
-                onChange={(e) => update(active.id, { text: e.target.value })}
-                rows={2}
-                className="w-full resize-none border border-border bg-background p-3 text-sm"
-                placeholder="Your text"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={active.font}
-                  onChange={(e) => update(active.id, { font: e.target.value })}
-                  className="min-h-11 border border-border bg-background px-2 text-sm"
-                >
-                  {FONTS.map((f) => (
-                    <option key={f.label} value={f.value}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={active.align}
-                  onChange={(e) =>
-                    update(active.id, { align: e.target.value as "left" | "center" | "right" })
-                  }
-                  className="min-h-11 border border-border bg-background px-2 text-sm"
-                >
-                  <option value="left">Left</option>
-                  <option value="center">Center</option>
-                  <option value="right">Right</option>
-                </select>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => update(active.id, { bold: !active.bold })}
-                  className={`min-h-11 min-w-11 border border-border px-3 font-bold ${active.bold ? "bg-ink text-cream" : "bg-background"}`}
-                >
-                  B
-                </button>
-                <button
-                  type="button"
-                  onClick={() => update(active.id, { italic: !active.italic })}
-                  className={`min-h-11 min-w-11 border border-border px-3 italic ${active.italic ? "bg-ink text-cream" : "bg-background"}`}
-                >
-                  I
-                </button>
-                <label className="flex min-h-11 items-center gap-2 border border-border px-3 text-sm">
-                  Color
+            {active.kind === "text" ? (
+              <>
+                <textarea
+                  value={active.text}
+                  onChange={(e) => update(active.id, { text: e.target.value })}
+                  rows={2}
+                  dir="auto"
+                  className="w-full border border-border bg-background p-2 text-sm"
+                />
+                <label className="block text-xs">
+                  {t("font")}
+                  <select
+                    value={active.font}
+                    onChange={(e) => update(active.id, { font: e.target.value })}
+                    className="mt-1 min-h-11 w-full border border-border bg-background px-2 text-sm"
+                  >
+                    {FONTS.map((f) => (
+                      <option key={f.value} value={f.value} style={{ fontFamily: f.value }}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex items-center gap-3">
                   <input
                     type="color"
                     value={active.color}
                     onChange={(e) => update(active.id, { color: e.target.value })}
-                    className="h-6 w-8 border-0 bg-transparent p-0"
+                    className="h-10 w-14 border border-border bg-background"
+                    aria-label={t("color")}
                   />
-                </label>
-              </div>
-            </>
-          )}
+                  <button
+                    type="button"
+                    onClick={() => update(active.id, { bold: !active.bold })}
+                    className={`min-h-11 flex-1 border text-sm font-bold ${active.bold ? "bg-ink text-cream" : "border-border"}`}
+                  >
+                    B
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => update(active.id, { italic: !active.italic })}
+                    className={`min-h-11 flex-1 border text-sm italic ${active.italic ? "bg-ink text-cream" : "border-border"}`}
+                  >
+                    I
+                  </button>
+                </div>
+              </>
+            ) : null}
 
-          <label className="block text-xs tracking-[0.2em] uppercase">
-            Size
-            <input
-              type="range"
-              min={10}
-              max={100}
-              value={active.w}
-              onChange={(e) => update(active.id, { w: Number(e.target.value) })}
-              className="mt-2 w-full"
-            />
-          </label>
-          <label className="block text-xs tracking-[0.2em] uppercase">
-            <span className="inline-flex items-center gap-1">
-              <RotateCw size={12} /> Rotation
-            </span>
-            <input
-              type="range"
-              min={-180}
-              max={180}
-              value={active.rotation}
-              onChange={(e) => update(active.id, { rotation: Number(e.target.value) })}
-              className="mt-2 w-full"
-            />
-          </label>
-        </div>
-      )}
-
-      {!active && (
-        <p className="mt-3 text-center text-xs text-muted-foreground">
-          Tap an element to edit it. Drag to move, pinch to resize.
-        </p>
-      )}
+            <label className="block text-xs">
+              {t("size")}
+              <input
+                type="range"
+                min={3}
+                max={100}
+                step={0.5}
+                value={active.w}
+                onChange={(e) => update(active.id, { w: Number(e.target.value) })}
+                className="mt-1 w-full"
+              />
+            </label>
+            <label className="block text-xs">
+              {t("rotation")}
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                value={active.rotation}
+                onChange={(e) => update(active.id, { rotation: Number(e.target.value) })}
+                className="mt-1 w-full"
+              />
+            </label>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -1,16 +1,17 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { PRODUCTS } from "@/lib/catalog";
+import { createFileRoute } from "@tanstack/react-router";
 import { ProductCard } from "@/components/ProductCard";
+import { useCountries, usePrices, useProducts } from "@/lib/data";
+import { useI18n } from "@/lib/i18n";
+import { useStore } from "@/lib/store";
 
-const title = "Shop Tees & Hoodies — JANNAR";
-const description =
-  "Browse JANNAR heavyweight tees and oversized hoodies in black and cream, ready for your custom front and back print.";
+type Search = { type?: string | undefined };
 
-type Search = { type?: "tee" | "hoodie" | undefined };
+const title = "Shop — JANNAR Custom Tees & Hoodies";
+const description = "Browse JANNAR blanks: heavyweight tees and hoodies ready for your own print.";
 
 export const Route = createFileRoute("/shop")({
   validateSearch: (s: Record<string, unknown>): Search => ({
-    type: s["type"] === "tee" || s["type"] === "hoodie" ? s["type"] : undefined,
+    type: typeof s['type'] === "string" ? (s['type'] as string) : undefined,
   }),
   head: () => ({
     meta: [
@@ -18,6 +19,8 @@ export const Route = createFileRoute("/shop")({
       { name: "description", content: description },
       { property: "og:title", content: title },
       { property: "og:description", content: description },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Shop,
@@ -25,35 +28,48 @@ export const Route = createFileRoute("/shop")({
 
 function Shop() {
   const { type } = Route.useSearch();
-  const items = type ? PRODUCTS.filter((p) => p.garment === type) : PRODUCTS;
-  const tabs: { label: string; value: Search["type"] }[] = [
-    { label: "All", value: undefined },
-    { label: "Shirts", value: "tee" },
-    { label: "Hoodies", value: "hoodie" },
+  const navigate = Route.useNavigate();
+  const { t } = useI18n();
+  const { region } = useStore();
+  const { data: products, isLoading } = useProducts();
+  const { data: prices } = usePrices();
+  const { data: countries } = useCountries();
+  const country = countries?.find((c) => c.code === region) ?? countries?.[0];
+
+  const filtered = (products ?? []).filter((p) => !type || p.garment === type);
+  const tabs: { key?: string; label: string }[] = [
+    { label: t("all") },
+    { key: "tee", label: t("tees") },
+    { key: "hoodie", label: t("hoodies") },
   ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10">
-      <h1 className="text-3xl">Shop</h1>
+      <h1 className="text-3xl">{t("shop")}</h1>
       <div className="mt-5 flex gap-2">
-        {tabs.map((t) => (
-          <Link
-            key={t.label}
-            to="/shop"
-            search={t.value ? { type: t.value } : {}}
-            className={`flex min-h-11 items-center border px-4 text-xs tracking-[0.2em] uppercase ${
-              type === t.value ? "border-ink bg-ink text-cream" : "border-border"
+        {tabs.map((tab) => (
+          <button
+            key={tab.label}
+            type="button"
+            onClick={() => navigate({ search: tab.key ? { type: tab.key } : {} })}
+            className={`min-h-10 border px-4 text-xs tracking-[0.2em] uppercase ${
+              (type ?? undefined) === tab.key ? "bg-ink text-cream" : "border-border"
             }`}
           >
-            {t.label}
-          </Link>
+            {tab.label}
+          </button>
         ))}
       </div>
-      <div className="mt-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {items.map((p) => (
-          <ProductCard key={p.slug} product={p} />
-        ))}
-      </div>
+
+      {isLoading ? (
+        <p className="mt-10 text-sm text-muted-foreground">{t("loading")}</p>
+      ) : (
+        <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {filtered.map((p) => (
+            <ProductCard key={p.id} product={p} prices={prices} country={country} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
