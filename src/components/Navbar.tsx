@@ -1,127 +1,117 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ShoppingBag, ChevronDown, Menu, X } from "lucide-react";
+import { ChevronDown, Menu, ShoppingBag, X } from "lucide-react";
 import wordmark from "@/assets/jannar-wordmark.png";
-import { REGIONS, type RegionCode } from "@/lib/catalog";
-import { setRegion, useStore } from "@/lib/store";
 import { Flag } from "./Flag";
+import { useCountries } from "@/lib/data";
+import { setRegion, useStore } from "@/lib/store";
+import { useI18n } from "@/lib/i18n";
+import { useIsAdmin, useSession } from "@/lib/auth";
 
 export function Navbar() {
+  const { t, pick, lang, setLang } = useI18n();
   const { cart, region } = useStore();
-  const [openRegion, setOpenRegion] = useState(false);
+  const { data: countries } = useCountries();
+  const { user } = useSession();
+  const { data: isAdmin } = useIsAdmin(user?.id);
+  const [openCountry, setOpenCountry] = useState(false);
   const [openMenu, setOpenMenu] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+
+  const current = countries?.find((c) => c.code === region) ?? countries?.[0];
   const count = cart.reduce((n, i) => n + i.qty, 0);
-  const current = REGIONS.find((r) => r.code === region) ?? REGIONS[0];
 
-  useEffect(() => {
-    if (!openRegion) return;
-    const onDown = (e: PointerEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpenRegion(false);
-    };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [openRegion]);
-
-  const links = [
-    { to: "/shop", label: "Shop" },
-    { to: "/customize", label: "Customize" },
-    { to: "/account", label: "Account" },
-  ];
+  const links = (
+    <>
+      <Link to="/shop" className="py-2 text-xs tracking-[0.2em] uppercase" onClick={() => setOpenMenu(false)}>
+        {t("shop")}
+      </Link>
+      <Link to="/customize" className="py-2 text-xs tracking-[0.2em] uppercase" onClick={() => setOpenMenu(false)}>
+        {t("customize")}
+      </Link>
+      <Link to="/account" className="py-2 text-xs tracking-[0.2em] uppercase" onClick={() => setOpenMenu(false)}>
+        {t("account")}
+      </Link>
+      {isAdmin ? (
+        <Link to="/admin" className="py-2 text-xs tracking-[0.2em] uppercase" onClick={() => setOpenMenu(false)}>
+          {t("admin")}
+        </Link>
+      ) : null}
+    </>
+  );
 
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-ink text-cream">
-      <div className="mx-auto grid max-w-6xl grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+    <header className="sticky top-0 z-40 border-b border-border bg-background/95 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          className="-ms-2 p-2 md:hidden"
+          aria-label={t("menu")}
+          onClick={() => setOpenMenu((v) => !v)}
+        >
+          {openMenu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+
+        <Link to="/" className="shrink-0">
+          <img src={wordmark} alt="JANNAR" width={470} height={235} className="h-6 w-auto" />
+        </Link>
+
+        <nav className="ms-6 hidden items-center gap-6 md:flex">{links}</nav>
+
+        <div className="ms-auto flex items-center gap-1">
           <button
             type="button"
-            aria-label="Menu"
-            className="-ml-1 p-2 md:hidden"
-            onClick={() => setOpenMenu((v) => !v)}
+            onClick={() => setLang(lang === "en" ? "ar" : "en")}
+            className="min-h-9 rounded border border-border px-2 text-xs tracking-[0.15em] uppercase"
+            aria-label={t("language")}
           >
-            {openMenu ? <X size={20} /> : <Menu size={20} />}
+            {lang === "en" ? "ع" : "EN"}
           </button>
-          <Link to="/" className="shrink-0" aria-label="JANNAR home">
-            <img src={wordmark} alt="JANNAR" width={470} height={235} className="h-7 w-auto" />
-          </Link>
-        </div>
 
-        <nav className="hidden justify-center gap-8 text-xs tracking-[0.2em] uppercase md:flex">
-          {links.map((l) => (
-            <Link
-              key={l.to}
-              to={l.to}
-              className="opacity-70 transition-opacity hover:opacity-100"
-              activeProps={{ className: "opacity-100 underline underline-offset-8" }}
-            >
-              {l.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="flex items-center gap-1">
-          <div className="relative" ref={ref}>
+          <div className="relative">
             <button
               type="button"
-              onClick={() => setOpenRegion((v) => !v)}
-              aria-expanded={openRegion}
-              aria-label={`Region: ${current.name}`}
-              className="flex min-h-11 items-center gap-1.5 px-2"
+              onClick={() => setOpenCountry((v) => !v)}
+              className="flex min-h-9 items-center gap-1 rounded border border-border px-2"
+              aria-label={t("country")}
             >
-              <Flag code={current.code} className="h-4 w-6" />
-              <span className="text-xs tracking-wider">{current.code}</span>
-              <ChevronDown size={14} className={openRegion ? "rotate-180" : ""} />
+              <Flag code={current?.code ?? "PS"} />
+              <ChevronDown className="h-3 w-3" />
             </button>
-            <div
-              className={`absolute right-0 top-full z-50 w-56 origin-top overflow-hidden border border-border bg-ink transition-transform duration-150 ${
-                openRegion ? "scale-y-100" : "pointer-events-none scale-y-0"
-              }`}
-            >
-              {REGIONS.map((r) => (
-                <button
-                  key={r.code}
-                  type="button"
-                  onClick={() => {
-                    setRegion(r.code as RegionCode);
-                    setOpenRegion(false);
-                  }}
-                  className={`flex min-h-12 w-full items-center gap-3 px-3 text-left text-sm ${
-                    r.code === region ? "bg-cream/15" : ""
-                  }`}
-                >
-                  <Flag code={r.code} className="h-4 w-6 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{r.name}</span>
-                  <span className="text-xs opacity-60">{r.code}</span>
-                </button>
-              ))}
-            </div>
+            {openCountry ? (
+              <ul className="absolute end-0 z-50 mt-1 w-44 border border-border bg-background shadow-lg">
+                {(countries ?? []).map((c) => (
+                  <li key={c.code}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegion(c.code);
+                        setOpenCountry(false);
+                      }}
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-start text-sm hover:bg-secondary"
+                    >
+                      <Flag code={c.code} />
+                      {pick(c, "name")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
-          <Link to="/cart" aria-label="Cart" className="relative p-2">
-            <ShoppingBag size={20} />
-            {count > 0 && (
-              <span className="absolute right-0 top-0 grid h-4 min-w-4 place-items-center rounded-full bg-cream px-1 text-[10px] font-bold text-ink">
+          <Link to="/cart" className="relative p-2" aria-label={t("cart")}>
+            <ShoppingBag className="h-5 w-5" />
+            {count > 0 ? (
+              <span className="absolute -end-0.5 -top-0.5 min-w-4 rounded-full bg-ink px-1 text-center text-[10px] leading-4 text-cream">
                 {count}
               </span>
-            )}
+            ) : null}
           </Link>
         </div>
       </div>
 
-      {openMenu && (
-        <nav className="border-t border-border/40 px-4 pb-3 text-sm tracking-[0.2em] uppercase md:hidden">
-          {links.map((l) => (
-            <Link
-              key={l.to}
-              to={l.to}
-              onClick={() => setOpenMenu(false)}
-              className="block border-b border-border/20 py-3 last:border-0"
-            >
-              {l.label}
-            </Link>
-          ))}
-        </nav>
-      )}
+      {openMenu ? (
+        <nav className="flex flex-col border-t border-border px-4 py-2 md:hidden">{links}</nav>
+      ) : null}
     </header>
   );
 }

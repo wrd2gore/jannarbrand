@@ -401,6 +401,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      check_promo: {
+        Args: { _code: string; _subtotal: number }
+        Returns: {
+          code: string
+          discount: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
